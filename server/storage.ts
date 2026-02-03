@@ -1,37 +1,29 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
 
-// modify the interface with any CRUD methods
-// you might need
+import { marketDataSchema, type MarketData } from "@shared/schema";
+
+// In-memory cache for live rates to avoid hitting limits
+let ratesCache: MarketData[] = [];
+let lastFetch = 0;
+const CACHE_TTL = 60 * 1000; // 1 minute
 
 export interface IStorage {
-  getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  // We don't strictly need persistent storage for the calculator,
+  // but we'll implement the interface pattern.
+  getLiveRates(): Promise<MarketData[]>;
+  setLiveRates(rates: MarketData[]): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
+  async getLiveRates(): Promise<MarketData[]> {
+    if (Date.now() - lastFetch < CACHE_TTL && ratesCache.length > 0) {
+      return ratesCache;
+    }
+    return [];
   }
 
-  async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
-  }
-
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
-  }
-
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+  async setLiveRates(rates: MarketData[]): Promise<void> {
+    ratesCache = rates;
+    lastFetch = Date.now();
   }
 }
 
