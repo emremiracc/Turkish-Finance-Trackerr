@@ -140,19 +140,12 @@ export async function registerRoutes(
         // Conversions
         if (type === 'GA' || type === 'CEYREK') {
           // Find matching USD rate
-          // This is O(N^2) but N is small (days). Can optimize if needed.
           const usdRate = usdHistory.find(u => u.date.toISOString().split('T')[0] === dateStr)?.close || 0;
-          
           const gramPrice = (price / 31.1035) * usdRate; // Ounce -> Gram TRY
-          
           if (type === 'GA') price = gramPrice;
           if (type === 'CEYREK') price = gramPrice * 1.63;
         }
 
-        // For USD/EUR/BIST, the price is already correct (or close enough for MVP)
-        // Note: XU100 is an index, not a currency. You "buy" the index points? 
-        // We'll treat it as buying "units" of the index.
-        
         return {
           date: dateStr,
           price: price
@@ -186,6 +179,64 @@ export async function registerRoutes(
     } catch (error) {
       console.error('Calculation Error:', error);
       res.status(500).json({ message: 'Hesaplama hatası' });
+    }
+  });
+
+  // Comparison Endpoint
+  app.post(api.simulate.compare.path, async (req, res) => {
+    try {
+      const { amount, date } = api.simulate.compare.input.parse(req.body);
+      const types: (keyof typeof SYMBOLS)[] = ['USD', 'EUR', 'GA', 'BIST'];
+      const today = new Date();
+
+      const results = await Promise.all(types.map(async (type) => {
+        try {
+          const symbol = SYMBOLS[type];
+          const queryOptions = {
+            period1: date,
+            period2: today.toISOString().split('T')[0],
+            interval: '1d' as const
+          };
+
+          const [historyData, usdHistory] = await Promise.all([
+            yahooFinance.historical(symbol, queryOptions),
+            (type === 'GA') ? yahooFinance.historical(SYMBOLS.USD, queryOptions) : Promise.resolve([])
+          ]);
+
+          if (!historyData || historyData.length === 0) return null;
+
+          const startDay = historyData[0];
+          const endDay = historyData[historyData.length - 1];
+          
+          let startPrice = startDay.close;
+          let endPrice = endDay.close;
+
+          if (type === 'GA') {
+            const startUsd = usdHistory.find(u => u.date.toISOString().split('T')[0] === startDay.date.toISOString().split('T')[0])?.close || 0;
+            const endUsd = usdHistory.find(u => u.date.toISOString().split('T')[0] === endDay.date.toISOString().split('T')[0])?.close || 0;
+            startPrice = (startPrice / 31.1035) * startUsd;
+            endPrice = (endPrice / 31.1035) * endUsd;
+          }
+
+          const units = amount / startPrice;
+          const finalAmount = units * endPrice;
+          const profit = finalAmount - amount;
+          const percentageChange = ((finalAmount - amount) / amount) * 100;
+
+          return {
+            type,
+            finalAmount: Math.round(finalAmount * 100) / 100,
+            percentageChange: Math.round(percentageChange * 100) / 100,
+            profit: Math.round(profit * 100) / 100
+          };
+        } catch (e) {
+          return null;
+        }
+      }));
+
+      res.json(results.filter(r => r !== null));
+    } catch (error) {
+      res.status(500).json({ message: 'Karşılaştırma hatası' });
     }
   });
 

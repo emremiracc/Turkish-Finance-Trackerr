@@ -22,6 +22,20 @@ export const api = {
         400: z.object({ message: z.string() }),
       },
     },
+    compare: {
+      method: 'POST' as const,
+      path: '/api/simulate/compare',
+      input: calculateRequestSchema.omit({ type: true }),
+      responses: {
+        200: z.array(z.object({
+          type: z.enum(investmentTypes),
+          finalAmount: z.number(),
+          percentageChange: z.number(),
+          profit: z.number()
+        })),
+        400: z.object({ message: z.string() }),
+      },
+    },
   },
 };
 
