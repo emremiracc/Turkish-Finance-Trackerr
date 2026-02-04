@@ -1,6 +1,6 @@
 
 import { z } from 'zod';
-import { calculateRequestSchema, marketDataSchema, calculationResultSchema } from './schema';
+import { calculateRequestSchema, marketDataSchema, calculationResultSchema, investmentTypes } from './schema';
 
 export const api = {
   rates: {
