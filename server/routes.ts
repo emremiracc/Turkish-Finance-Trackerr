@@ -107,11 +107,63 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Gelecek tarih seçilemez.' });
       }
 
-      // Fetch historical data
-      const queryOptions = {
-        period1: date,
-        period2: today.toISOString().split('T')[0],
-        interval: '1d' as const
+      // Fetch historical data with retry logic for insufficient data
+      const fetchHistoricalWithRetry = async () => {
+        let period1 = date;
+        let attempts = 0;
+        const maxAttempts = 3;
+
+        while (attempts < maxAttempts) {
+          const queryOptions = {
+            period1,
+            period2: today.toISOString().split('T')[0],
+            interval: '1d' as const
+          };
+
+          try {
+            const [data, usd] = await Promise.all([
+              yahooFinance.historical(symbol, queryOptions),
+              (type === 'GA' || type === 'CEYREK') ? yahooFinance.historical(SYMBOLS.USD, queryOptions) : Promise.resolve([])
+            ]);
+
+            if (!data || data.length === 0) {
+              throw new Error('No data');
+            }
+
+            // Process and filter for varying prices
+            const processed = data.map(day => {
+              let price = day.close;
+              const dateStr = day.date.toISOString().split('T')[0];
+
+              if (type === 'GA' || type === 'CEYREK') {
+                const usdRate = usd.find(u => u.date.toISOString().split('T')[0] === dateStr)?.close || 0;
+                const gramPrice = (price / 31.1035) * usdRate;
+                if (type === 'GA') price = gramPrice;
+                if (type === 'CEYREK') price = gramPrice * 1.63;
+              }
+
+              return { date: dateStr, price };
+            }).filter(h => h.price > 0)
+              .filter((h, i, arr) => i === 0 || h.price !== arr[i-1].price); // Remove consecutive duplicates
+
+            if (processed.length >= 2) {
+              return { historyData: processed, usdHistory: usd };
+            }
+
+            // Not enough varying data points, retry with earlier date
+            const retryDate = new Date(period1);
+            retryDate.setDate(retryDate.getDate() - 1);
+            period1 = retryDate.toISOString().split('T')[0];
+            attempts++;
+          } catch (e) {
+            const retryDate = new Date(period1);
+            retryDate.setDate(retryDate.getDate() - 1);
+            period1 = retryDate.toISOString().split('T')[0];
+            attempts++;
+          }
+        }
+
+        throw new Error('Insufficient data after retries');
       };
 
       // We need USD/TRY history for gold conversion if type is Gold
@@ -119,10 +171,9 @@ export async function registerRoutes(
       let usdHistory: any[] = [];
 
       try {
-        historyData = await yahooFinance.historical(symbol, queryOptions);
-        if (type === 'GA' || type === 'CEYREK') {
-           usdHistory = await yahooFinance.historical(SYMBOLS.USD, queryOptions);
-        }
+        const result = await fetchHistoricalWithRetry();
+        historyData = result.historyData;
+        usdHistory = result.usdHistory;
       } catch (e) {
         console.error("Historical fetch error:", e);
         return res.status(400).json({ message: 'Geçmiş veri bulunamadı.' });
@@ -132,25 +183,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Bu tarih için veri yok.' });
       }
 
-      // Process history to match dates and calculate value in TRY
-      const resultHistory = historyData.map(day => {
-        let price = day.close;
-        const dateStr = day.date.toISOString().split('T')[0];
-
-        // Conversions
-        if (type === 'GA' || type === 'CEYREK') {
-          // Find matching USD rate
-          const usdRate = usdHistory.find(u => u.date.toISOString().split('T')[0] === dateStr)?.close || 0;
-          const gramPrice = (price / 31.1035) * usdRate; // Ounce -> Gram TRY
-          if (type === 'GA') price = gramPrice;
-          if (type === 'CEYREK') price = gramPrice * 1.63;
-        }
-
-        return {
-          date: dateStr,
-          price: price
-        };
-      }).filter(h => h.price > 0);
+      // resultHistory is already processed with duplicate filtering
+      const resultHistory = historyData;
 
       if (resultHistory.length === 0) {
         return res.status(400).json({ message: 'Veri işlenemedi.' });

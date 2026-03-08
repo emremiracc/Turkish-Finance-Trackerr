@@ -181,6 +181,7 @@ export function InvestmentResult({ result, type }: InvestmentResultProps) {
                 stroke={isProfit ? "#10b981" : "#f43f5e"} 
                 strokeWidth={3}
                 dot={false}
+                connectNulls={true}
                 activeDot={{ r: 6, strokeWidth: 0, fill: isProfit ? "#10b981" : "#f43f5e" }}
                 animationDuration={1500}
               />
