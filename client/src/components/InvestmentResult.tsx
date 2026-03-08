@@ -1,15 +1,21 @@
 import { type CalculationResult } from "@shared/schema";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-import { ArrowUpRight, ArrowDownRight, TrendingUp } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, TrendingUp, Share2 } from "lucide-react";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
 
 interface InvestmentResultProps {
   result: CalculationResult;
+  type?: string;
 }
 
-export function InvestmentResult({ result }: InvestmentResultProps) {
+export function InvestmentResult({ result, type }: InvestmentResultProps) {
   const isProfit = result.profit >= 0;
+  const [shareStatus, setShareStatus] = useState<'default' | 'copied'>('default');
+  const { toast } = useToast();
   
   // Format currency
   const formatMoney = (val: number) => 
@@ -18,6 +24,52 @@ export function InvestmentResult({ result }: InvestmentResultProps) {
       currency: 'TRY',
       maximumFractionDigits: 0
     }).format(val);
+
+  const getTypeName = (typeCode?: string) => {
+    const typeLabels: Record<string, string> = {
+      USD: "Amerikan Doları",
+      EUR: "Euro",
+      GA: "Gram Altın",
+      CEYREK: "Çeyrek Altın",
+      BIST: "BIST 100",
+    };
+    return typeCode ? typeLabels[typeCode] || typeCode : "Yatırım";
+  };
+
+  const handleShare = async () => {
+    const startDate = format(new Date(result.history[0].date), "d MMMM yyyy", { locale: tr });
+    const shareText = `${startDate} tarihinde ${formatMoney(result.initialAmount)} ile ${getTypeName(type)} alsaydın bugün ${formatMoney(result.finalAmount)} olurdu (+%${result.percentageChange.toFixed(2)}).`;
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: "Yatırım Hesapla",
+          text: shareText,
+        });
+      } catch (error) {
+        if ((error as any).name !== "AbortError") {
+          console.error("Share failed:", error);
+        }
+      }
+    } else {
+      // Fallback to clipboard
+      try {
+        await navigator.clipboard.writeText(shareText);
+        setShareStatus('copied');
+        toast({
+          description: "Kopyalandı ✓",
+          duration: 2000,
+        });
+        setTimeout(() => setShareStatus('default'), 2000);
+      } catch (error) {
+        console.error("Copy failed:", error);
+        toast({
+          description: "Kopyalama başarısız oldu",
+          variant: "destructive",
+        });
+      }
+    }
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -38,20 +90,34 @@ export function InvestmentResult({ result }: InvestmentResultProps) {
           <div className="text-4xl font-display font-bold text-foreground tracking-tight">
             {formatMoney(result.finalAmount)}
           </div>
-          <div className="mt-4 flex items-center gap-3">
-            <div className={`
-              px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1.5
-              ${isProfit 
-                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400" 
-                : "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400"
-              }
-            `}>
-              {isProfit ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
-              {isProfit ? "+" : ""}%{Math.abs(result.percentageChange).toFixed(2)}
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <div className={`
+                px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1.5
+                ${isProfit 
+                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400" 
+                  : "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400"
+                }
+              `}>
+                {isProfit ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
+                {isProfit ? "+" : ""}%{Math.abs(result.percentageChange).toFixed(2)}
+              </div>
+              <span className="text-sm font-medium text-muted-foreground">
+                {isProfit ? "Net Kar" : "Net Zarar"}: {formatMoney(Math.abs(result.profit))}
+              </span>
             </div>
-            <span className="text-sm font-medium text-muted-foreground">
-              {isProfit ? "Net Kar" : "Net Zarar"}: {formatMoney(Math.abs(result.profit))}
-            </span>
+            {type && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="w-full"
+                onClick={handleShare}
+                data-testid="button-share"
+              >
+                <Share2 className="w-4 h-4 mr-2" />
+                {shareStatus === 'copied' ? 'Kopyalandı ✓' : 'Paylaş'}
+              </Button>
+            )}
           </div>
         </div>
 

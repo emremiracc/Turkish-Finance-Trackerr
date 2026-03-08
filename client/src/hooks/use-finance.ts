@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api, type CalculateRequest } from "@shared/routes";
+import { z } from "zod";
 
 // GET /api/rates/live
 export function useLiveRates() {
@@ -36,6 +37,29 @@ export function useCalculateInvestment() {
       }
 
       return api.simulate.calculate.responses[200].parse(await res.json());
+    },
+  });
+}
+
+// POST /api/simulate/compare
+export function useCompareInvestments() {
+  return useMutation({
+    mutationFn: async (data: Omit<CalculateRequest, 'type'>) => {
+      const res = await fetch(api.simulate.compare.path, {
+        method: api.simulate.compare.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (!res.ok) {
+        if (res.status === 400) {
+          const error = await res.json();
+          throw new Error(error.message || "Karşılaştırma hatası");
+        }
+        throw new Error("Karşılaştırma yapılamadı");
+      }
+
+      return api.simulate.compare.responses[200].parse(await res.json());
     },
   });
 }
